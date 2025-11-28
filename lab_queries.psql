@@ -1,0 +1,126 @@
+-- -- TASK 1
+
+-- -- WITH neighbor_counts_cte AS (
+-- --     SELECT country, COUNT(DISTINCT neighbor) AS num
+-- --     FROM (
+-- --         SELECT country1 AS country, country2 AS neighbor FROM borders
+-- --         UNION ALL
+-- --         SELECT country2 AS country, country1 AS neighbor FROM borders
+-- --     ) AS border_found
+-- --     GROUP BY country
+-- -- ),
+-- -- min_neighbors AS (
+-- --     SELECT MIN(num) AS min_num
+-- --     FROM neighbor_counts_cte
+-- -- )
+-- -- SELECT country.name, nc_cte.num
+-- -- FROM neighbor_counts_cte nc_cte
+-- -- JOIN min_neighbors ON nc_cte.num = min_neighbors.min_num
+-- -- JOIN country ON country.code = nc_cte.country
+-- -- ORDER BY country.name;
+
+-- -- TASK 2
+-- -- SELECT
+-- --     spoken.language,
+-- --     ROUND(SUM(country.population * (spoken.percentage / 100))) AS speakers
+-- -- FROM spoken
+-- -- JOIN country ON country.code = spoken.country
+-- -- WHERE country.population IS NOT NULL AND spoken.percentage IS NOT NULL
+-- -- GROUP BY spoken.language
+-- -- ORDER BY peakers DESC;
+
+-- -- TASK 3
+-- WITH neighbor_pair AS (
+--   SELECT country1 AS country, country2 AS neighbor FROM borders
+--   UNION ALL
+--   SELECT country2 AS country, country1 AS neighbor FROM borders
+-- ),
+-- gdp_pair AS (
+--   SELECT c1.Code AS country1, c2.Code AS country2, e1.GDP AS gdp1, e2.GDP AS gdp2, ROUND(e1.GDP / NULLIF(e2.GDP, 0)) AS ratio
+--   FROM neighbor_pair np
+--   JOIN economy e1 ON e1.country = np.country
+--   JOIN economy e2 ON e2.country = np.neighbor
+--   JOIN country c1 ON c1.code = np.country
+--   JOIN country c2 ON c2.code = np.neighbor
+--   WHERE e1.GDP > 0 AND e2.GDP > 0
+-- )
+-- SELECT *
+-- FROM gdp_pair
+-- ORDER BY ratio DESC;
+
+-- P+ TASK1
+-- WITH RECURSIVE Reachable AS (
+--     -- Level 0: Sweden itself
+--     SELECT c.code, 0 AS crossings
+--     FROM Country c
+--     WHERE c.name = 'Sweden'
+
+--     UNION ALL
+
+--     -- Recursive step: follow one land border
+--     SELECT CASE WHEN b.country1 = r.code THEN b.country2 ELSE b.country1 END AS code,
+--            r.crossings + 1 AS crossings
+--     FROM Reachable r
+--     JOIN borders b ON b.country1 = r.code OR b.country2 = r.code
+--     WHERE r.crossings < 5
+--       AND CASE WHEN b.country1 = r.code THEN b.country2 ELSE b.country1 END <> (SELECT code FROM Country WHERE name = 'Sweden')
+-- )
+-- SELECT Country.Code, Country.Name, MIN(Reachable.crossings) AS minimal_crossings
+-- FROM Reachable
+-- JOIN Country ON Country.Code = Reachable.code
+-- WHERE Reachable.crossings > 0          -- exclude Sweden itself
+-- GROUP BY Country.Code, Country.Name
+-- ORDER BY minimal_crossings, Country.Code;
+-- P+ Task2
+
+-- Longest tributary branches for selected river systems
+-- WITH RECURSIVE river_branch AS (
+--     SELECT
+--         r.name AS current_river,
+--         r.name AS main_river,
+--         COALESCE(r.length, 0) AS total_length,
+--         1 AS num_rivers,
+--         r.name::TEXT AS path
+--     FROM river r
+--     WHERE r.name IN ('Nile', 'Amazonas', 'Yangtze', 'Rhein', 'Donau', 'Mississippi')
+
+--     UNION ALL
+
+--     SELECT
+--         child.name,
+--         rb.main_river,
+--         rb.total_length + COALESCE(child.length, 0),
+--         rb.num_rivers + 1,
+--         rb.path || '-' || child.name
+--     FROM river child
+--     JOIN river_branch rb ON child.river = rb.current_river
+-- ),
+-- leaf_branches AS (
+--     SELECT
+--         main_river,
+--         path,
+--         num_rivers,
+--         total_length
+--     FROM river_branch rb
+--     WHERE NOT EXISTS (
+--         SELECT 1 FROM river c WHERE c.river = rb.current_river
+--     )
+-- ),
+-- longest_per_system AS (
+--     SELECT lb.*
+--     FROM leaf_branches lb
+--     JOIN (
+--         SELECT main_river, MAX(num_rivers) AS max_rivers
+--         FROM leaf_branches
+--         GROUP BY main_river
+--     ) mx
+--       ON lb.main_river = mx.main_river
+--      AND lb.num_rivers = mx.max_rivers
+-- )
+-- SELECT
+--     RANK() OVER (ORDER BY num_rivers) AS rank,
+--     path,
+--     num_rivers,
+--     total_length
+-- FROM longest_per_system
+-- ORDER BY num_rivers, path;
