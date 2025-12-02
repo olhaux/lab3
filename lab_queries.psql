@@ -1,9 +1,9 @@
 -- -- TASK 1
--- Standardises land borders as undirected by listing both country1–country2 and country2–country1.
--- Counts the number of distinct neighboring countries per country in a CTE.
--- Computes the global minimum neighbor count across all countries.
--- Filters to only those countries whose neighbor count equals this global minimum.
--- Joins with Country to show country names and orders the result alphabetically.
+-- land borders as undirected by listing both country1–country2 and country2–country1.
+-- Count the number of distinct neighboring countries per country in a CTE.
+-- Compute the global minimum neighbor count across all countries.
+-- Filter to only those countries whose neighbor count equals this global minimum.
+-- Join with Country to show country names and orders the result alphabetically.
 WITH neighbor_counts_cte AS (
     SELECT country, COUNT(DISTINCT neighbor) AS num
     FROM (
@@ -24,26 +24,26 @@ JOIN country ON country.code = nc_cte.country
 ORDER BY country.name;
 
 -- -- TASK 2
--- Multiplies each country’s population by the percentage speaking a language to estimate speakers.
--- Ignores rows where population or percentage is NULL to avoid incorrect arithmetic.
--- Aggregates the  speakers per language across all countries.
--- Rounds the total number of speakers to the nearest integer.
--- Orders languages by estimated number of speakers in descending order.
+-- Multiply each country’s population by the percentage speaking a language to estimate speakers.
+-- Ignore rows where population or percentage is NULL to avoid incorrect arithmetic.
+-- Aggregate the  speakers per language across all countries.
+-- Roundsthe total number of speakers to the nearest integer.
+-- Order languages by estimated number of speakers in descending order.
 SELECT
     spoken.language,
     ROUND(SUM(country.population * (spoken.percentage / 100))) AS speakers
 FROM spoken
 JOIN country ON country.code = spoken.country
 WHERE country.population IS NOT NULL AND spoken.percentage IS NOT NULL
-GROUP BY spoken.language
-ORDER BY peakers DESC;
+GROUP BY spoken.language    
+ORDER BY speakers DESC;
 
 -- -- TASK 3
--- Builds an undirected list of neighboring country pairs via the borders table.
--- Joins economy data twice to associate each country in the pair with its GDP.
--- Uses NULLIF in the denominator to avoid division by zero when computing GDP ratios.
--- Filters out non-positive GDP values to keep ratios meaningful.
--- Orders neighbor pairs by the GDP ratio (country1 / country2) in descending order.
+-- Build an undirected list of neighboring country pairs via the borders table.
+-- Join economy data twice to associate each country in the pair with its GDP.
+-- Use NULLIF in the denominator to avoid division by zero when computing GDP ratios.
+-- Filter out non-positive GDP values to keep ratios meaningful.
+-- Order neighbor pairs by the GDP ratio (country1 / country2) in descending order.
 WITH neighbor_pair AS (
   SELECT country1 AS country, country2 AS neighbor FROM borders
   UNION ALL
@@ -63,33 +63,38 @@ FROM gdp_pair
 ORDER BY ratio DESC;
 
 -- P+ TASK1
--- Starts from Swedenin a recursive CTE representing reachable countries.
--- At each step, follows all land borders to reach neighbors, increasing the crossing count by one.
--- Limits recursion depth to at most 5 border crossings to avoid infinite expansion.
--- Excludes paths that return to Sweden and then computes the minimal crossings per reached country.
--- Outputs all countries reachable from Sweden with their minimal crossing count, ordered by crossings then code.
-WITH RECURSIVE Reachable AS (
-    -- Level 0: Sweden itself
-    SELECT c.code, 0 AS crossings
-    FROM Country c
-    WHERE c.name = 'Sweden'
+-- Initialize the recursive CTE with Sweden as the starting node (0 crossings).
+-- Recursively follow all land borders to neighboring countries and increase the crossing count by 1.
+-- Limit recursion depth to a maximum of 5 crossings to prevent infinite expansion.
+-- After recursion, exclude Sweden and compute the minimal number of crossings required to reach each country.
+-- Output each reachable country with its minimal crossing count, ordered by crossings and country code.
+WITH RECURSIVE SwedenNeighborCountries(code, name, min) AS (
+
+    -- Start at Sweden
+    SELECT c.code AS country_code, c.name AS country_name, 0 AS min
+    FROM country c
+    WHERE c.code = 'S'
 
     UNION ALL
 
-    -- Recursive step: follow one land border
-    SELECT CASE WHEN b.country1 = r.code THEN b.country2 ELSE b.country1 END AS code,
-           r.crossings + 1 AS crossings
-    FROM Reachable r
-    JOIN borders b ON b.country1 = r.code OR b.country2 = r.code
-    WHERE r.crossings < 5
-      AND CASE WHEN b.country1 = r.code THEN b.country2 ELSE b.country1 END <> (SELECT code FROM Country WHERE name = 'Sweden')
+    -- Recursive step: expand to neighbors
+    SELECT c.code AS country_code, c.name AS country_name, snc.min + 1 AS min
+    FROM SwedenNeighborCountries snc
+    JOIN (
+        SELECT country1 AS country, country2 AS neighbor FROM borders
+        UNION ALL
+        SELECT country2 AS country, country1 AS neighbor FROM borders
+    ) b
+    ON b.country = snc.code JOIN country c ON c.code = b.neighbor
+    WHERE snc.min < 5
 )
-SELECT Country.Code, Country.Name, MIN(Reachable.crossings) AS minimal_crossings
-FROM Reachable
-JOIN Country ON Country.Code = Reachable.code
-WHERE Reachable.crossings > 0          -- exclude Sweden itself
-GROUP BY Country.Code, Country.Name
-ORDER BY minimal_crossings, Country.Code;
+
+SELECT code, name, MIN(min) AS min_crossings
+FROM SwedenNeighborCountries
+WHERE code != 'S'
+GROUP BY name, code
+ORDER BY min_crossings, code ASC;
+
 
 -- P+ Task2
 -- Focuses on a selected set of main rivers as starting points of recursive exploration.
