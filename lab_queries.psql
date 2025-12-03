@@ -104,56 +104,41 @@ ORDER BY min_crossings ASC;
 -- Accumulates both the total length and the number of rivers in each branch.
 -- Restricts to leaf branches that cannot be extended by further rivers.
 -- For each main river system, keeps only the branch(es) with the largest number of rivers and ranks them.
-WITH RECURSIVE river_branch AS (
-    -- start at each selected main river
+WITH RECURSIVE river_tree (mainriver, currentriver, path, numrivers, totlength) AS (
+
+    -- Base case: start from the main rivers
     SELECT
-        r.name AS current_river,
-        r.name AS main_river,
-        r.length AS total_length,
-        1 AS num_rivers,
-        r.name::TEXT AS path -- Convert name to text
-    FROM river r
-    WHERE r.name IN ('Nile', 'Amazonas', 'Yangtze', 'Rhein', 'Donau', 'Mississippi')
+        r.name AS mainriver,
+        r.name AS currentriver,
+        r.name::text AS path,
+        1 AS numrivers,
+        r.length AS totlength
+    FROM River r
+    WHERE r.name IN ('Nile','Amazonas','Yangtze','Rhein','Donau','Mississippi')
 
     UNION ALL
-    -- Recursive step
+
+    -- Recursive case: find tributaries flowing into the current river
     SELECT
-        child.name,
-        rb.main_river,
-        rb.total_length + child.length,
-        rb.num_rivers + 1,
-        rb.path || '-' || child.name -- path must be a string
-    FROM river child
-    JOIN river_branch rb ON child.river = rb.current_river
+        rt.mainriver,
+        child.name AS currentriver,
+        rt.path || '-' || child.name,
+        rt.numrivers + 1,
+        rt.totlength + child.length
+    FROM river_tree rt
+    JOIN River child ON child.river = rt.currentriver     -- child flows into parent
 ),
--- Keep only branches that cannot be extended further
-check_ends AS (
-    SELECT
-        main_river,
-        path,
-        num_rivers,
-        total_length
-    FROM river_branch rb
-    WHERE NOT EXISTS (
-        SELECT 1 FROM river c WHERE c.river = rb.current_river
-    )
-),
--- For each main river, keep branch with the maximum number of rivers
-longest_per_system AS (
-    SELECT ends.*
-    FROM check_ends ends
-    JOIN (
-        SELECT main_river, MAX(num_rivers) AS max_rivers
-        FROM check_ends
-        GROUP BY main_river
-    ) mx
-      ON ends.main_river = mx.main_river
-     AND ends.num_rivers = mx.max_rivers
+-- Find the longest branches (max numrivers) per main river
+max_branch AS (
+    SELECT mainriver, MAX(numrivers) AS maxamount
+    FROM river_tree
+    GROUP BY mainriver
 )
 SELECT
-    RANK() OVER (ORDER BY num_rivers) AS rank, -- rank by branch length
-    path,
-    num_rivers,
-    total_length
-FROM longest_per_system
-ORDER BY num_rivers, total_length;
+    DENSE_RANK() OVER (ORDER BY rt.numrivers ASC) AS rank,
+    rt.path,
+    rt.numrivers,
+    rt.totlength
+FROM river_tree rt
+JOIN max_branch mb ON rt.mainriver = mb.mainriver AND rt.numrivers = mb.maxamount
+ORDER BY rank, totlength DESC;
