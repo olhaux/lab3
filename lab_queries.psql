@@ -5,23 +5,24 @@
 -- Filter to only those countries whose neighbor count equals this global minimum.
 -- Join with Country to show country names and orders the result alphabetically.
 WITH neighbor_counts_cte AS (
-    SELECT country, COUNT(DISTINCT neighbor) AS num
+    SELECT country_code, COUNT(DISTINCT neighbor_code) AS num_neighbors
     FROM (
-        SELECT country1 AS country, country2 AS neighbor FROM borders
+        SELECT country1 AS country_code, country2 AS neighbor_code FROM borders
         UNION ALL
-        SELECT country2 AS country, country1 AS neighbor FROM borders
+        SELECT country2 AS country_code, country1 AS neighbor_code FROM borders
     ) AS border_found
-    GROUP BY country
+    GROUP BY country_code
 ),
 min_neighbors AS (
-    SELECT MIN(num) AS min_num
+    SELECT MIN(num_neighbors) AS min_num_neighbors
     FROM neighbor_counts_cte
 )
-SELECT country.name, nc_cte.num
+SELECT country.name, nc_cte.num_neighbors
 FROM neighbor_counts_cte nc_cte
-JOIN min_neighbors ON nc_cte.num = min_neighbors.min_num
-JOIN country ON country.code = nc_cte.country
+JOIN min_neighbors ON nc_cte.num_neighbors = min_neighbors.min_num_neighbors
+JOIN country ON country.code = nc_cte.country_code
 ORDER BY country.name;
+
 
 -- -- TASK 2
 -- Multiply each country’s population by the percentage speaking a language to estimate speakers.
@@ -45,22 +46,23 @@ ORDER BY speakers DESC;
 -- Filter out non-positive GDP values to keep ratios meaningful.
 -- Order neighbor pairs by the GDP ratio (country1 / country2) in descending order.
 WITH neighbor_pair AS (
-  SELECT country1 AS country, country2 AS neighbor FROM borders
-  UNION ALL
-  SELECT country2 AS country, country1 AS neighbor FROM borders
+    SELECT country1 AS country_code, country2 AS neighbor_code FROM borders
+    UNION ALL
+    SELECT country2 AS country_code, country1 AS neighbor_code FROM borders
 ),
 gdp_pair AS (
-  SELECT c1.Code AS country1, c2.Code AS country2, e1.GDP AS gdp1, e2.GDP AS gdp2, ROUND(e1.GDP / NULLIF(e2.GDP, 0)) AS ratio
-  FROM neighbor_pair np
-  JOIN economy e1 ON e1.country = np.country
-  JOIN economy e2 ON e2.country = np.neighbor
-  JOIN country c1 ON c1.code = np.country
-  JOIN country c2 ON c2.code = np.neighbor
-  WHERE e1.GDP > 0 AND e2.GDP > 0
+    SELECT c1.code AS country1, e1.GDP AS gdp1, c2.code AS country2, e2.GDP AS gdp2, ROUND(e1.GDP / NULLIF(e2.GDP, 0)) AS ratio
+    FROM neighbor_pair np
+    JOIN economy e1 ON e1.country = np.country_code
+    JOIN economy e2 ON e2.country = np.neighbor_code
+    JOIN country c1 ON c1.code = np.country_code
+    JOIN country c2 ON c2.code = np.neighbor_code
+    WHERE e1.GDP > 0 AND e2.GDP > 0
 )
 SELECT *
 FROM gdp_pair
 ORDER BY ratio DESC;
+
 
 -- P+ TASK1
 -- Initialize the recursive CTE with Sweden as the starting node (0 crossings).
@@ -69,33 +71,33 @@ ORDER BY ratio DESC;
 -- After recursion, exclude Sweden and compute the minimal number of crossings required to reach each country.
 -- Output each reachable country with its minimal crossing count, ordered by crossings and country code.
 -- snc = countries already reached, c = country reachable by border, b = boarder connection
-WITH RECURSIVE SwedenNeighborCountries(code, name, min) AS (
+WITH RECURSIVE SwedenNeighborCountries(country_code, country_name, min_crossings) AS (
 
     -- Start at Sweden
-    SELECT c.code AS country_code, c.name AS country_name, 0 AS min
+    SELECT c.code AS country_code, c.name AS country_name, 0 AS min_crossings
     FROM country c
     WHERE c.code = 'S'
 
     UNION ALL
 
     -- Recursive step expand to neighbors
-    SELECT c.code AS country_code, c.name AS country_name, snc.min + 1 AS min
+    SELECT c.code AS country_code, c.name AS country_name, snc.min_crossings + 1 AS min_crossings
     FROM SwedenNeighborCountries snc
     JOIN (
-        SELECT country1 AS country, country2 AS neighbor FROM borders
+        SELECT country1 AS country_code, country2 AS neighbor_code FROM borders
         UNION ALL
-        SELECT country2 AS country, country1 AS neighbor FROM borders
-    ) b
-    ON b.country = snc.code 
-    JOIN country c ON c.code = b.neighbor
-    WHERE snc.min < 5
+        SELECT country2 AS country_code, country1 AS neighbor_code FROM borders
+    ) b ON b.country_code = snc.country_code 
+    JOIN country c ON c.code = b.neighbor_code
+    WHERE snc.min_crossings < 5
 )
 
-SELECT code, name, MIN(min) AS min_crossings
+SELECT country_code, country_name, MIN(min_crossings) AS min_crossings
 FROM SwedenNeighborCountries
-WHERE code != 'S'
-GROUP BY name, code
+WHERE country_code != 'S'
+GROUP BY country_code, country_name
 ORDER BY min_crossings ASC;
+
 
 
 -- P+ Task2
@@ -106,25 +108,15 @@ ORDER BY min_crossings ASC;
 -- For each main river system, keeps only the branch(es) with the largest number of rivers and ranks them.
 WITH RECURSIVE river_tree (mainriver, currentriver, path, numrivers, totlength) AS (
 
-    -- Base case: start from the main rivers
-    SELECT
-        r.name AS mainriver,
-        r.name AS currentriver,
-        r.name::text AS path,
-        1 AS numrivers,
-        r.length AS totlength
+    -- Base case start from the main rivers
+    SELECT r.name AS mainriver, r.name AS currentriver, r.name::text AS path,  1 AS numrivers, r.length AS totlength
     FROM River r
     WHERE r.name IN ('Nile','Amazonas','Yangtze','Rhein','Donau','Mississippi')
 
     UNION ALL
 
-    -- Recursive case: find tributaries flowing into the current river
-    SELECT
-        rt.mainriver,
-        child.name AS currentriver,
-        rt.path || '-' || child.name,
-        rt.numrivers + 1,
-        rt.totlength + child.length
+    -- Recursive case find tributaries flowing into the current river
+    SELECT rt.mainriver, child.name AS currentriver, rt.path || '-' || child.name, rt.numrivers + 1, rt.totlength + child.length
     FROM river_tree rt
     JOIN River child ON child.river = rt.currentriver     -- child flows into parent
 ),
@@ -134,11 +126,9 @@ max_branch AS (
     FROM river_tree
     GROUP BY mainriver
 )
-SELECT
-    DENSE_RANK() OVER (ORDER BY rt.numrivers ASC) AS rank,
-    rt.path,
-    rt.numrivers,
-    rt.totlength
+SELECT 
+    RANK() OVER (ORDER BY rt.numrivers ASC) AS rank, 
+    rt.path, rt.numrivers, rt.totlength
 FROM river_tree rt
 JOIN max_branch mb ON rt.mainriver = mb.mainriver AND rt.numrivers = mb.maxamount
 ORDER BY rank, totlength DESC;
